@@ -45,7 +45,7 @@ Installation
 This package [is on PyPI](https://pypi.org/project/email-validator/), so:
 
 ```sh
-pip install email-validator
+pip install email-validator-vector-friendly
 ```
 
 `pip3` also works.
