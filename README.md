@@ -1,5 +1,12 @@
-email-validator: Validate Email Addresses
+email-validator-vector-friendly: Validate Email Addresses
 =========================================
+
+This is a vectorization-friendly fork by [Bryce Merrill](https://github.com/bmerrill17) of the email-validator library
+created by Joshua Tauberer. This fork is intended for more efficient use of the library with large datasets; it replaces
+exception raising in the case of invalid emails with the simple return of a False boolean value stored in a .valid property
+and a detailed error description stored in a .error property.
+
+The original email-validator README is below (with adjustments for replaced functionality):
 
 A robust email address syntax and deliverability validation library for
 Python 2.7/3.4+ by [Joshua Tauberer](https://joshdata.me).
@@ -46,28 +53,32 @@ pip install email-validator
 Usage
 -----
 
-If you're validating a user's email address before creating a user
-account, you might do this:
+To add "valid" and "error" columns to a DataFrame containing potential email addresses:
 
 ```python
-from email_validator import validate_email, EmailNotValidError
+from email_validator import validate_email
+import pandas as pd
 
-email = "my+address@mydomain.tld"
+examples = ['firstlast@gmail.', 'firstlast@gmail.com', '@gmail.com']
 
-try:
-  # Validate.
-  valid = validate_email(email)
+df = pd.DataFrame({'emails': examples})
 
-  # Update with the normalized form.
-  email = valid.email
-except EmailNotValidError as e:
-  # email is not valid, exception message is human-readable
-  print(str(e))
+df['valid'] = df.apply(lambda x: validate_email(x['emails']).valid, axis=1)
+df['errors'] = df.apply(lambda x: validate_email(x['emails']).error, axis=1)
+
+pd.set_option('display.expand_frame_repr', False)
+
+print(df)
+
 ```
+This would result in the below DataFrame:
+```
+                emails  valid                                             errors
+0     firstlast@gmail.  False  The domain name gmail. is not valid. It is not...
+1  firstlast@gmail.com   True                                                   
+2           @gmail.com  False  The email address contains invalid characters ...
 
-This validates the address and gives you its normalized form. You should
-put the normalized form in your database and always normalize before
-checking if an address is in your database.
+```
 
 When validating many email addresses or to control the timeout (the default is 15 seconds), create a caching [dns.resolver.Resolver](https://dnspython.readthedocs.io/en/latest/resolver-class.html) to reuse in each call:
 
@@ -92,20 +103,11 @@ Overview
 The module provides a function `validate_email(email_address)` which
 takes an email address (either a `str` or ASCII `bytes`) and:
 
-- Raises a `EmailNotValidError` with a helpful, human-readable error
-  message explaining why the email address is not valid, or
-- Returns an object with a normalized form of the email address and
-  other information about it.
+- Returns an object information about the address, including the properties .valid (Bool) and .error (str error description)
 
-When an email address is not valid, `validate_email` raises either an
-`EmailSyntaxError` if the form of the address is invalid or an
-`EmailUndeliverableError` if the domain name does not resolve. Both
-exception classes are subclasses of `EmailNotValidError`, which in turn
-is a subclass of `ValueError`.
-
-But when an email address is valid, an object is returned containing
+Regardless of validation result, an object is returned containing
 a normalized form of the email address (which you should use!) and
-other information.
+other information (such as validation status and error description).
 
 The validator doesn't permit obsoleted forms of email addresses that no
 one uses anymore even though they are still valid and deliverable, since
@@ -135,7 +137,7 @@ shown):
     
 `dns_resolver=None`: Pass an instance of [dns.resolver.Resolver](https://dnspython.readthedocs.io/en/latest/resolver-class.html) to control the DNS resolver including setting a timeout and [a cache](https://dnspython.readthedocs.io/en/latest/resolver-caching.html). The `caching_resolver` function shown above is a helper function to construct a dns.resolver.Resolver with a [LRUCache](https://dnspython.readthedocs.io/en/latest/resolver-caching.html#dns.resolver.LRUCache). Reuse the same resolver instance across calls to `validate_email` to make use of the cache.
 
-In non-production test environments, you may want to allow `@test` or `@mycompany.test` email addresses to be used as placeholder email addresses, which would normally not be permitted. In that case, pass `test_environment=True`. DNS-based deliverability checks will be disabled as well. Other [Special Use Domain Names](https://www.iana.org/assignments/special-use-domain-names/special-use-domain-names.xhtml) are always considered invalid and raise `EmailUndeliverableError`.
+In non-production test environments, you may want to allow `@test` or `@mycompany.test` email addresses to be used as placeholder email addresses, which would normally not be permitted. In that case, pass `test_environment=True`. DNS-based deliverability checks will be disabled as well.
 
 Internationalized email addresses
 ---------------------------------
@@ -179,7 +181,7 @@ By default all internationalized forms are accepted by the validator.
 But if you know ahead of time that SMTPUTF8 is not supported by your
 mail submission stack, then you must filter out addresses that require
 SMTPUTF8 using the `allow_smtputf8=False` keyword argument (see above).
-This will cause the validation function to raise a `EmailSyntaxError` if
+This will cause the validation function to return a False if
 delivery would require SMTPUTF8. That's just in those cases where
 non-ASCII characters appear before the @-sign. If you do not set
 `allow_smtputf8=False`, you can also check the value of the `smtputf8`
@@ -265,7 +267,9 @@ ValidatedEmail(
   ascii_domain='joshdata.me',
   smtputf8=False,
   mx=[(10, 'box.occams.info')],
-  mx_fallback_type=None)
+  mx_fallback_type=None,
+  valid=True,
+  error="")
 ```
 
 For the fictitious address `example@ツ.life`, which has an
@@ -279,8 +283,9 @@ ValidatedEmail(
   ascii_email='example@xn--bdk.life',
   ascii_local_part='example',
   ascii_domain='xn--bdk.life',
-  smtputf8=False)
-
+  smtputf8=False,
+  valid=True,
+  error="")
 ```
 
 Note that `smtputf8` is `False` even though the domain part is
@@ -306,7 +311,9 @@ ValidatedEmail(
   ascii_email=None,
   ascii_local_part=None,
   ascii_domain='joshdata.me',
-  smtputf8=True)
+  smtputf8=True,
+  valid=True,
+  error="")
 ```
 
 Now `smtputf8` is `True` and `ascii_email` is `None` because the local
@@ -332,6 +339,8 @@ are:
 | `smtputf8` | A boolean indicating that the [SMTPUTF8](https://tools.ietf.org/html/rfc6531) feature of your mail relay will be required to transmit messages to this address because the local part of the address has non-ASCII characters (the local part cannot be IDNA-encoded). If `allow_smtputf8=False` is passed as an argument, this flag will always be false because an exception is raised if it would have been true. |
 | `mx` | A list of (priority, domain) tuples of MX records specified in the DNS for the domain (see [RFC 5321 section 5](https://tools.ietf.org/html/rfc5321#section-5)). May be `None` if the deliverability check could not be completed because of a temporary issue like a timeout. |
 | `mx_fallback_type` | `None` if an `MX` record is found. If no MX records are actually specified in DNS and instead are inferred, through an obsolete mechanism, from A or AAAA records, the value is the type of DNS record used instead (`A` or `AAAA`). May be `None` if the deliverability check could not be completed because of a temporary issue like a timeout. |
+| `valid` | `True` if email address is valid, `False` if it is not |
+| `error` | `""` if email address is valid, a detailed error (string) if it is not |
 
 Assumptions
 -----------
@@ -352,37 +361,3 @@ or likely to cause trouble:
   troublesome conditions.
 * The "literal" form for the domain part of an email address (an
   IP address) is not accepted --- no one uses this anymore anyway.
-
-Testing
--------
-
-Tests can be run using
-
-```sh
-pip install -r test_requirements.txt 
-make test
-```
-
-For Project Maintainers
------------------------
-
-The package is distributed as a universal wheel and as a source package.
-
-To release:
-
-* Update the version number.
-* Follow the steps below to publish source and a universal wheel to pypi.
-* Make a release at https://github.com/JoshData/python-email-validator/releases/new.
-
-```sh
-pip3 install twine
-rm -rf dist
-python3 setup.py sdist
-python3 setup.py bdist_wheel
-twine upload dist/*
-git tag v1.0.XXX # replace with version in setup.py
-git push --tags
-```
-
-Notes: The wheel is specified as universal in the file `setup.cfg` by the `universal = 1` key in the
-`[bdist_wheel]` section.
